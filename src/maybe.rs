@@ -1,7 +1,6 @@
 #[diagnostic::on_unimplemented(
     message = "this is a helper for [Option, Result].",
-    label = "consider using collect_array_checked",
-    note = "you probably want to get a `None` if the iterator isnt big enough"
+    label = "you might want collect_array_checked"
 )]
 #[doc(hidden)]
 pub trait Maybe {

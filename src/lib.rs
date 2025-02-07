@@ -1,17 +1,12 @@
 pub use error::Error;
-use std::mem::{ManuallyDrop as MD, MaybeUninit as MU};
-const unsafe fn transmute_unchecked<T, U>(value: T) -> U {
-    const { assert!(size_of::<T>() == size_of::<U>()) }
-    #[repr(C)]
-    union Transmute<T, U> {
-        t: MD<T>,
-        u: MD<U>,
-    }
-    unsafe { MD::into_inner(Transmute { t: MD::new(value) }.u) }
-}
+use std::{
+    mem::{ManuallyDrop as MD, MaybeUninit as MU, forget},
+    ptr::drop_in_place,
+};
 mod error;
 mod maybe;
 use maybe::Maybe;
+
 /// Collect to an array.
 pub trait CollectArray: Iterator + Sized {
     /// Lets you collect an iterator into a fixed length array with no vec allocation.
@@ -46,22 +41,7 @@ pub trait CollectArray: Iterator + Sized {
     /// assert_eq!(array, Err(3));
     /// ```
     fn collect_array_checked<const N: usize>(&mut self) -> Result<[Self::Item; N], usize> {
-        let mut out = [const { MU::uninit() }; N];
-        // initialize each element
-        for elem in 0..N {
-            out[elem] = MU::new(match self.next() {
-                Some(x) => x,
-                None => {
-                    for item in &mut out[..elem] {
-                        // drop initialized elements
-                        unsafe { item.assume_init_drop() };
-                    }
-                    return Err(elem);
-                }
-            });
-        }
-        // SAFETY: all initialized
-        Ok(unsafe { transmute_unchecked(out) })
+        try_from_fn(|elem| self.next().ok_or(elem))
     }
 
     /// Creates an array [T; N] where each fallible (i.e [`Option`] or [`Result`]) element is begotten from [`next`](Iterator::next).
@@ -87,36 +67,16 @@ pub trait CollectArray: Iterator + Sized {
         &mut self,
     ) -> Result<[<Self::Item as Maybe>::Unwrap; N], Error<N, <Self::Item as Maybe>::Or>>
     where
-        <Self as Iterator>::Item: Maybe,
+        Self::Item: Maybe,
     {
-        let mut out = [const { MU::uninit() }; N];
-        // initialize each element of `out`
-        for elem in 0..N {
-            let e = match self
-                .next()
-                .ok_or(Error {
-                    at: elem,
-                    error: None,
-                })
-                .and_then(|x| {
-                    x.asr().map_err(|x| Error {
-                        at: elem,
-                        error: Some(x),
-                    })
-                }) {
-                Ok(x) => x,
-                Err(x) => {
-                    for item in &mut out[..elem] {
-                        // drop each previously initialized item
-                        unsafe { item.assume_init_drop() };
-                    }
-                    return Err(x);
-                }
-            };
-            out[elem] = MU::new(e);
-        }
-        // SAFETY: each element has been initialized
-        Ok(unsafe { transmute_unchecked(out) })
+        try_from_fn(|elem| {
+            self.next()
+                // no error, ran out
+                .ok_or(None)
+                // some error, flattened
+                .and_then(|x| x.asr().map_err(Some))
+                .map_err(|x| Error { error: x, at: elem })
+        })
     }
 
     /// This function fills an array with this iterators elements.
@@ -133,3 +93,83 @@ pub trait CollectArray: Iterator + Sized {
     }
 }
 impl<I: Iterator> CollectArray for I {}
+
+struct OnDrop<F: FnOnce()> {
+    f: MD<F>,
+}
+impl<F: FnOnce()> OnDrop<F> {
+    fn guard(x: F) -> Self {
+        Self { f: MD::new(x) }
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        // SAFETY: `Drop::drop` is only called once.
+        unsafe { MD::take(&mut self.f)() }
+    }
+}
+
+const unsafe fn transmute_unchecked<T, U>(value: T) -> U {
+    const { assert!(size_of::<T>() == size_of::<U>()) }
+    #[repr(C)]
+    union Transmute<T, U> {
+        t: MD<T>,
+        u: MD<U>,
+    }
+    unsafe { MD::into_inner(Transmute { t: MD::new(value) }.u) }
+}
+
+/// [`std::array::try_from_fn`] on stable.
+///
+/// Creates an array `[T; N]` where each fallible array element `T` is returned by the `cb` call.
+/// Unlike [`from_fn`], where the element creation can't fail, this version will return an error
+/// if any element creation was unsuccessful.
+///
+/// The return type of this function depends on the return type of the closure.
+/// If you return `Result<T, E>` from the closure, you'll get a `Result<[T; N], E>`.
+/// If you return `Option<T>` from the closure, you'll get an `Result<[T; N], ()>`.
+///
+/// # Arguments
+///
+/// * `cb`: Callback where the passed argument is the current array index.
+///
+/// # Example
+///
+/// ```rust
+/// let array: Result<[u8; 5], _> = collar::try_from_fn(|i| i.try_into());
+/// assert_eq!(array, Ok([0, 1, 2, 3, 4]));
+///
+/// let array: Result<[i8; 200], _> = collar::try_from_fn(|i| i.try_into());
+/// assert!(array.is_err());
+///
+/// let array: Option<[_; 4]> = collar::try_from_fn(|i| i.checked_add(100)).ok();
+/// assert_eq!(array, Some([100, 101, 102, 103]));
+///
+/// let array: Option<[_; 4]> = collar::try_from_fn(|i| i.checked_sub(100)).ok();
+/// assert_eq!(array, None);
+/// ```
+pub fn try_from_fn<R: Maybe, const N: usize>(
+    mut x: impl FnMut(usize) -> R,
+) -> Result<[R::Unwrap; N], R::Or> {
+    let mut out = [const { MU::uninit() }; N];
+    // initialize each element of `out`
+    for elem in 0..N {
+        let guard = OnDrop::guard(|| unsafe {
+            let p = &raw mut out[..elem] as *mut [R::Unwrap];
+            let guard = OnDrop::guard(|| drop_in_place(p));
+            drop_in_place(p);
+            // dont drop! (again)
+            forget(guard);
+        });
+        let e = x(elem).asr()?;
+        // dont drop!
+        forget(guard);
+        out[elem] = MU::new(e);
+    }
+    // SAFETY: each element has been initialized
+    Ok(unsafe { transmute_unchecked(out) })
+}
+
+#[doc(no_inline)]
+pub use std::array::from_fn;
