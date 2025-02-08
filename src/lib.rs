@@ -1,4 +1,17 @@
-pub use error::Error;
+//! provides [`collect_array`](CollectArray::collect_array) and [`try_from_fn`].
+//! allowing easy allocation-free collection to an array.
+//!
+//! ```
+//! # /*
+//! use collar::*;
+//! let Some([ty, path, http]) = request.split(' ').collect_array_checked() else {
+//!     return;
+//! };
+//! # */
+//! ```
+
+use error::Error;
+pub use error::Error as CollectorError;
 use std::{
     mem::{ManuallyDrop as MD, MaybeUninit as MU, forget},
     ptr::drop_in_place,
@@ -46,7 +59,7 @@ pub trait CollectArray: Iterator + Sized {
 
     /// Creates an array [T; N] where each fallible (i.e [`Option`] or [`Result`]) element is begotten from [`next`](Iterator::next).
     /// Unlike [`collect_array`](CollectArray::collect_array), where the element creation can't fail, this version will return an error if any element creation was unsuccessful (returned [`Err`] or [`None`]).
-    /// In the case where the iterator ran out of elements, this returns a [`CollectorError::Amount`]
+    /// In the case where the iterator ran out of elements, this returns a [`CollectorError`] containing the count.
     ///
     /// The return type of this function depends on the [`Item`](Iterator::Item) of this [`Iterator`].
     /// If you return `Result<T, E>` from the closure, you'll get a `Result<[T; N], CollectorError<E>>`.
