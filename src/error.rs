@@ -13,8 +13,8 @@ impl<const N: usize, const O: usize, E: PartialEq> PartialEq<Error<O, E>> for Er
     }
 }
 
-impl<const N: usize, E: std::fmt::Display> std::fmt::Display for Error<N, E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<const N: usize, E: core::fmt::Display> core::fmt::Display for Error<N, E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match (&self.error, &self.at) {
             (Some(x), at) => write!(f, "{x} @ {at} of {N}"),
             (None, at) => write!(
@@ -25,8 +25,8 @@ impl<const N: usize, E: std::fmt::Display> std::fmt::Display for Error<N, E> {
     }
 }
 
-impl<const N: usize, E: std::fmt::Debug> std::fmt::Debug for Error<N, E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<const N: usize, E: core::fmt::Debug> core::fmt::Debug for Error<N, E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match (&self.error, &self.at) {
             (Some(x), at) => write!(f, "{x:?} @ {at} of {N}"),
             (None, at) => write!(f, "Size(wanted {N}, had {at})"),
@@ -34,8 +34,8 @@ impl<const N: usize, E: std::fmt::Debug> std::fmt::Debug for Error<N, E> {
     }
 }
 
-impl<const N: usize, E: std::error::Error + 'static> std::error::Error for Error<N, E> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl<const N: usize, E: core::error::Error + 'static> core::error::Error for Error<N, E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         Some(self.error.as_ref()?)
     }
 }

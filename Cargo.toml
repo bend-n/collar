@@ -1,12 +1,13 @@
 [package]
 name = "collar"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 authors = ["bend-n <bend.n@outlook.com>"]
 license = "MIT"
 description = "easy array collection"
 repository = "https://github.com/bend-n/collar"
 keywords = ["array", "utility", "collect", "iterators"]
+categories = ["no-std", "algorithms", "rust-patterns", "no-std::no-alloc"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--generate-link-to-definition"]

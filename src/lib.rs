@@ -1,5 +1,6 @@
+#![no_std]
 //! provides [`collect_array`](CollectArray::collect_array) and [`try_from_fn`].
-//! allowing easy allocation-free collection to an array.
+//! allowing easy vec-free collection to an array.
 //!
 //! ```
 //! # /*
@@ -10,12 +11,12 @@
 //! # */
 //! ```
 
-use error::Error;
-pub use error::Error as CollectorError;
-use std::{
+use core::{
     mem::{ManuallyDrop as MD, MaybeUninit as MU, forget},
     ptr::drop_in_place,
 };
+use error::Error;
+pub use error::Error as CollectorError;
 mod error;
 mod maybe;
 use maybe::Maybe;
@@ -102,7 +103,7 @@ pub trait CollectArray: Iterator + Sized {
     /// )
     /// ```
     fn items<const N: usize>(&mut self) -> [Option<Self::Item>; N] {
-        std::array::from_fn(|_| self.next())
+        from_fn(|_| self.next())
     }
 }
 impl<I: Iterator> CollectArray for I {}
@@ -185,4 +186,4 @@ pub fn try_from_fn<R: Maybe, const N: usize>(
 }
 
 #[doc(no_inline)]
-pub use std::array::from_fn;
+pub use core::array::from_fn;
